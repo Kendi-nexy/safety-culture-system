@@ -78,6 +78,15 @@ function LandingPage() {
         <div className="absolute right-0 -top-24 w-[32rem] h-[32rem] rounded-full bg-primary/25 blur-[120px]" />
         <div className="absolute right-1/4 bottom-0 w-72 h-72 rounded-full bg-primary/15 blur-[100px]" />
 
+        {/* Photo fades into the gradient on its left/top/bottom edges (baked
+            into the PNG itself) rather than sitting as a hard rectangle. */}
+        <img
+          src="/hero-worker.png"
+          alt=""
+          aria-hidden="true"
+          className="hidden lg:block absolute right-0 top-0 h-full w-[46%] object-cover object-[30%_20%] opacity-90 pointer-events-none select-none"
+        />
+
         <div className="relative max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-20 lg:py-24">
           <div className="max-w-2xl">
             <div className="text-accent text-xs font-bold tracking-[0.2em] uppercase mb-4">
