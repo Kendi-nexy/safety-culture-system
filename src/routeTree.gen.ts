@@ -10,18 +10,32 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as CorrectiveActionsRouteImport } from './routes/corrective-actions'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as UsersRouteImport } from './routes/users'
+import { Route as ZonesRouteImport } from './routes/zones'
+import { Route as ReportsReportIdRouteImport } from './routes/reports.$reportId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AnalyticsRoute = AnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CorrectiveActionsRoute = CorrectiveActionsRouteImport.update({
+  id: '/corrective-actions',
+  path: '/corrective-actions',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DashboardRoute = DashboardRouteImport.update({
@@ -34,39 +48,90 @@ const UsersRoute = UsersRouteImport.update({
   path: '/users',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ZonesRoute = ZonesRouteImport.update({
+  id: '/zones',
+  path: '/zones',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReportsReportIdRoute = ReportsReportIdRouteImport.update({
+  id: '/reports/$reportId',
+  path: '/reports/$reportId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/analytics': typeof AnalyticsRoute
   '/auth': typeof AuthRoute
+  '/corrective-actions': typeof CorrectiveActionsRoute
   '/dashboard': typeof DashboardRoute
   '/users': typeof UsersRoute
+  '/zones': typeof ZonesRoute
+  '/reports/$reportId': typeof ReportsReportIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/analytics': typeof AnalyticsRoute
   '/auth': typeof AuthRoute
+  '/corrective-actions': typeof CorrectiveActionsRoute
   '/dashboard': typeof DashboardRoute
   '/users': typeof UsersRoute
+  '/zones': typeof ZonesRoute
+  '/reports/$reportId': typeof ReportsReportIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/analytics': typeof AnalyticsRoute
   '/auth': typeof AuthRoute
+  '/corrective-actions': typeof CorrectiveActionsRoute
   '/dashboard': typeof DashboardRoute
   '/users': typeof UsersRoute
+  '/zones': typeof ZonesRoute
+  '/reports/$reportId': typeof ReportsReportIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/dashboard' | '/users'
+  fullPaths:
+    | '/'
+    | '/analytics'
+    | '/auth'
+    | '/corrective-actions'
+    | '/dashboard'
+    | '/users'
+    | '/zones'
+    | '/reports/$reportId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/dashboard' | '/users'
-  id: '__root__' | '/' | '/auth' | '/dashboard' | '/users'
+  to:
+    | '/'
+    | '/analytics'
+    | '/auth'
+    | '/corrective-actions'
+    | '/dashboard'
+    | '/users'
+    | '/zones'
+    | '/reports/$reportId'
+  id:
+    | '__root__'
+    | '/'
+    | '/analytics'
+    | '/auth'
+    | '/corrective-actions'
+    | '/dashboard'
+    | '/users'
+    | '/zones'
+    | '/reports/$reportId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AnalyticsRoute: typeof AnalyticsRoute
   AuthRoute: typeof AuthRoute
+  CorrectiveActionsRoute: typeof CorrectiveActionsRoute
   DashboardRoute: typeof DashboardRoute
   UsersRoute: typeof UsersRoute
+  ZonesRoute: typeof ZonesRoute
+  ReportsReportIdRoute: typeof ReportsReportIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -78,11 +143,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/analytics': {
+      id: '/analytics'
+      path: '/analytics'
+      fullPath: '/analytics'
+      preLoaderRoute: typeof AnalyticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/auth': {
       id: '/auth'
       path: '/auth'
       fullPath: '/auth'
       preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/corrective-actions': {
+      id: '/corrective-actions'
+      path: '/corrective-actions'
+      fullPath: '/corrective-actions'
+      preLoaderRoute: typeof CorrectiveActionsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/dashboard': {
@@ -99,14 +178,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof UsersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/zones': {
+      id: '/zones'
+      path: '/zones'
+      fullPath: '/zones'
+      preLoaderRoute: typeof ZonesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reports/$reportId': {
+      id: '/reports/$reportId'
+      path: '/reports/$reportId'
+      fullPath: '/reports/$reportId'
+      preLoaderRoute: typeof ReportsReportIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AnalyticsRoute: AnalyticsRoute,
   AuthRoute: AuthRoute,
+  CorrectiveActionsRoute: CorrectiveActionsRoute,
   DashboardRoute: DashboardRoute,
   UsersRoute: UsersRoute,
+  ZonesRoute: ZonesRoute,
+  ReportsReportIdRoute: ReportsReportIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
