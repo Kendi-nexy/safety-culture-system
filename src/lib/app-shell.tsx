@@ -98,11 +98,11 @@ export const roleColors: Record<Role, string> = {
   Admin: "from-red-500 to-rose-600",
 };
 
-export function can(role: Role | null, action: "assign" | "close" | "manageUsers" | "viewAll" | "report"): boolean {
+export function can(role: Role | null, action: "assign" | "close" | "manageUsers" | "viewAll" | "report" | "comment"): boolean {
   if (action === "report") return true;
   if (!role) return false;
   if (action === "viewAll") return role !== "Employee";
-  if (action === "assign" || action === "close") return STAFF_ROLES.includes(role);
+  if (action === "assign" || action === "close" || action === "comment") return STAFF_ROLES.includes(role);
   if (action === "manageUsers") return role === "Admin";
   return false;
 }
@@ -112,9 +112,9 @@ type NavItem = { icon: any; label: string; to: string; roles?: Role[]; publicIte
 const NAV: NavItem[] = [
   { icon: FileWarning, label: "Report an issue", to: "/", publicItem: true },
   { icon: LayoutDashboard, label: "Dashboard", to: "/dashboard", roles: STAFF_ROLES },
-  { icon: ClipboardList, label: "Corrective actions", to: "/dashboard", roles: STAFF_ROLES },
-  { icon: MapPin, label: "Zones & sites", to: "/dashboard", roles: STAFF_ROLES },
-  { icon: Activity, label: "Analytics", to: "/dashboard", roles: ["HSE Officer", "Admin"] },
+  { icon: ClipboardList, label: "Corrective actions", to: "/corrective-actions", roles: STAFF_ROLES },
+  { icon: MapPin, label: "Zones & sites", to: "/zones", roles: STAFF_ROLES },
+  { icon: Activity, label: "Analytics", to: "/analytics", roles: ["HSE Officer", "Admin"] },
   { icon: Users, label: "Users", to: "/users", roles: ["HSE Officer", "Admin"] },
 ];
 
