@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   ShieldCheck, Users as UsersIcon, Search, UserPlus, Mail,
-  CheckCircle2, ArrowLeft,
+  CheckCircle2, ArrowLeft, Trash2, Loader2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { toast } from "sonner";
+import { Toaster } from "@/components/ui/sonner";
 import { TopNav, SiteFooter, useAuth, can, ROLES, type Role } from "@/lib/app-shell";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
@@ -43,29 +45,73 @@ const roleStyles: Record<Role, string> = {
 
 type Profile = Tables<"profiles">;
 
+// Inverse of DB_ROLE_TO_LABEL, for writing a selected display Role back to
+// the lowercase value the `profiles.role` check constraint expects.
+const LABEL_TO_DB_ROLE: Record<Role, string> = {
+  Employee: "employee",
+  Supervisor: "supervisor",
+  "HSE Officer": "hse",
+  Admin: "admin",
+};
+
 function UsersPage() {
-  const { role, ready, isAuthed } = useAuth();
+  const { role, profile: currentProfile, ready, isAuthed } = useAuth();
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<"All" | Role>("All");
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
     if (ready && !isAuthed && typeof window !== "undefined") window.location.href = "/auth";
   }, [ready, isAuthed]);
 
+  async function loadProfiles() {
+    // Only readable by the signed-in user themself (their own row) or an
+    // admin (all rows), per the "admins read all profiles" RLS policy.
+    const { data, error } = await supabase.from("profiles").select("*").order("full_name");
+    setProfiles(error ? [] : (data ?? []));
+  }
+
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      // Only readable by the signed-in user themself (their own row) or an
-      // admin (all rows), per the "admins read all profiles" RLS policy.
-      const { data, error } = await supabase.from("profiles").select("*").order("full_name");
-      if (!cancelled) setProfiles(error ? [] : (data ?? []));
-    }
-    load();
-    return () => { cancelled = true; };
+    loadProfiles();
   }, []);
 
   const canManage = can(role, "manageUsers");
+
+  async function changeRole(user: Profile, nextLabel: Role) {
+    const nextDbRole = LABEL_TO_DB_ROLE[nextLabel];
+    if (nextDbRole === user.role) return;
+    setBusyId(user.id);
+    // Requires the "admins update any profile" RLS policy — see
+    // supabase/migrations/20260804010000_admin_manage_profiles.sql
+    const { error } = await supabase.from("profiles").update({ role: nextDbRole }).eq("id", user.id);
+    setBusyId(null);
+    if (error) {
+      toast.error(`Couldn't change ${user.full_name}'s role`, { description: error.message });
+      return;
+    }
+    toast.success(`${user.full_name} is now ${nextLabel}`);
+    loadProfiles();
+  }
+
+  async function deleteUser(user: Profile) {
+    if (user.id === currentProfile?.id) return; // guarded in UI too, belt & braces
+    const confirmed = window.confirm(
+      `Remove ${user.full_name} from SafeGuard?\n\nThis deletes their profile row, so they immediately lose access to every role-gated page. It does NOT delete their underlying Supabase Auth account — full account deletion needs a service-role call, which isn't wired up yet.`
+    );
+    if (!confirmed) return;
+    setBusyId(user.id);
+    // Requires the "admins delete any profile" RLS policy — same migration
+    // as changeRole above.
+    const { error } = await supabase.from("profiles").delete().eq("id", user.id);
+    setBusyId(null);
+    if (error) {
+      toast.error(`Couldn't remove ${user.full_name}`, { description: error.message });
+      return;
+    }
+    toast.success(`${user.full_name} removed`);
+    loadProfiles();
+  }
 
   const filtered = useMemo(() => (profiles ?? []).filter(u => {
     const label = DB_ROLE_TO_LABEL[u.role] ?? "Employee";
@@ -96,6 +142,7 @@ function UsersPage() {
 
   return (
     <div className="min-h-screen">
+      <Toaster position="top-right" />
       <TopNav />
       <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         <div className="relative overflow-hidden rounded-3xl border border-border bg-gradient-to-br from-fuchsia-500/10 via-card to-primary/10 p-5 sm:p-8">
@@ -111,12 +158,12 @@ function UsersPage() {
               <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">Users & roles</h1>
               <p className="text-muted-foreground mt-2 max-w-xl text-sm sm:text-base">
                 {canManage
-                  ? "Everyone with a profile in Supabase Auth for SafeGuard. Invites and role changes need real auth wired up first — see README."
+                  ? "Change a role or remove access below. Inviting new users is on hold until the email-notification flow lands, so invites can reuse the same sending setup."
                   : "Directory of everyone with access to SafeGuard. Sign in as an Admin to manage users."}
               </p>
             </div>
             {canManage && (
-              <Button size="lg" disabled className="bg-primary text-primary-foreground font-semibold w-full md:w-auto opacity-60" title="Requires real Supabase Auth signup/invite flow — see README">
+              <Button size="lg" disabled className="bg-primary text-primary-foreground font-semibold w-full md:w-auto opacity-60" title="On hold until the partner's email-notification flow is ready, so invites can send through the same setup">
                 <UserPlus className="w-4 h-4 mr-2" /> Invite user
               </Button>
             )}
@@ -185,6 +232,28 @@ function UsersPage() {
                   {u.department && (
                     <div className="text-xs text-muted-foreground">{u.department}</div>
                   )}
+                  {canManage && (
+                    <div className="flex items-center gap-2 pt-1">
+                      <Select
+                        value={label}
+                        onValueChange={v => changeRole(u, v as Role)}
+                        disabled={busyId === u.id}
+                      >
+                        <SelectTrigger className="h-8 text-xs flex-1"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {ROLES.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        size="icon" variant="outline" className="h-8 w-8 shrink-0 text-destructive hover:text-destructive"
+                        disabled={busyId === u.id || u.id === currentProfile?.id}
+                        title={u.id === currentProfile?.id ? "You can't remove your own account here" : "Remove user"}
+                        onClick={() => deleteUser(u)}
+                      >
+                        {busyId === u.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -199,6 +268,7 @@ function UsersPage() {
                   <th className="text-left px-3 py-3 font-medium">Role</th>
                   <th className="text-left px-3 py-3 font-medium">Department</th>
                   <th className="text-left px-3 py-3 font-medium">Contact</th>
+                  {canManage && <th className="text-right px-5 py-3 font-medium">Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -218,7 +288,22 @@ function UsersPage() {
                         </div>
                       </td>
                       <td className="px-3 py-3.5">
-                        <Badge variant="outline" className={roleStyles[label]}>{label}</Badge>
+                        {canManage ? (
+                          <Select
+                            value={label}
+                            onValueChange={v => changeRole(u, v as Role)}
+                            disabled={busyId === u.id}
+                          >
+                            <SelectTrigger className="h-8 w-36 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ROLES.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Badge variant="outline" className={roleStyles[label]}>{label}</Badge>
+                        )}
                       </td>
                       <td className="px-3 py-3.5 text-muted-foreground text-xs">{u.department ?? "—"}</td>
                       <td className="px-3 py-3.5">
@@ -226,6 +311,18 @@ function UsersPage() {
                           <Mail className="w-3 h-3" /> {u.email}
                         </div>
                       </td>
+                      {canManage && (
+                        <td className="px-5 py-3.5 text-right">
+                          <Button
+                            size="icon" variant="outline" className="h-8 w-8 text-destructive hover:text-destructive"
+                            disabled={busyId === u.id || u.id === currentProfile?.id}
+                            title={u.id === currentProfile?.id ? "You can't remove your own account here" : "Remove user"}
+                            onClick={() => deleteUser(u)}
+                          >
+                            {busyId === u.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                          </Button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}

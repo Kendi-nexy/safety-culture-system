@@ -226,7 +226,9 @@ function DashboardPage() {
               {filtered.map(r => (
                 <div key={r.id} className="p-4 space-y-2">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono text-primary text-xs">{r.reference_number}</span>
+                    <span className="font-mono text-primary text-xs">
+                      <Link to="/reports/$reportId" params={{ reportId: r.id }} className="hover:underline">{r.reference_number}</Link>
+                    </span>
                     <Badge variant="outline" className={severityStyles[r.severity]}>{r.severity}</Badge>
                     <Badge variant="outline" className={statusStyles[r.status]}>{r.status.replace("_", " ")}</Badge>
                     <span className="ml-auto text-xs text-muted-foreground">{timeAgo(r.created_at)}</span>
@@ -257,7 +259,9 @@ function DashboardPage() {
                 <tbody>
                   {filtered.map(r => (
                     <tr key={r.id} className="border-t border-border hover:bg-muted/40 transition-colors">
-                      <td className="px-5 py-3.5 font-mono text-primary text-xs">{r.reference_number}</td>
+                      <td className="px-5 py-3.5 font-mono text-primary text-xs">
+                        <Link to="/reports/$reportId" params={{ reportId: r.id }} className="hover:underline">{r.reference_number}</Link>
+                      </td>
                       <td className="px-3 py-3.5 capitalize">{r.category.replace("_", " ")}</td>
                       <td className="px-3 py-3.5"><span className="inline-flex items-center gap-1 text-muted-foreground"><MapPin className="w-3 h-3" />{r.zone}</span></td>
                       <td className="px-3 py-3.5"><Badge variant="outline" className={severityStyles[r.severity]}>{r.severity}</Badge></td>
