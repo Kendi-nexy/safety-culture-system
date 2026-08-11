@@ -7,8 +7,35 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.5"
+  }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
   public: {
     Tables: {
@@ -127,15 +154,22 @@ export type Database = {
         Row: {
           assigned_to: string | null
           category: string
+          closed_at: string | null
+          closed_by: string | null
+          closure_comments: string | null
           created_at: string | null
           description: string
           due_at: string | null
           id: string
           is_anonymous: boolean | null
+          last_reminder_sent_at: string | null
           overdue: boolean | null
+          overdue_notified_at: string | null
           reference_number: string
+          reporter_email: string | null
           reporter_id: string | null
           reporter_name: string | null
+          resolution: string | null
           severity: string
           status: string
           updated_at: string | null
@@ -144,15 +178,22 @@ export type Database = {
         Insert: {
           assigned_to?: string | null
           category: string
+          closed_at?: string | null
+          closed_by?: string | null
+          closure_comments?: string | null
           created_at?: string | null
           description: string
           due_at?: string | null
           id?: string
           is_anonymous?: boolean | null
+          last_reminder_sent_at?: string | null
           overdue?: boolean | null
+          overdue_notified_at?: string | null
           reference_number?: string
+          reporter_email?: string | null
           reporter_id?: string | null
           reporter_name?: string | null
+          resolution?: string | null
           severity: string
           status?: string
           updated_at?: string | null
@@ -161,15 +202,22 @@ export type Database = {
         Update: {
           assigned_to?: string | null
           category?: string
+          closed_at?: string | null
+          closed_by?: string | null
+          closure_comments?: string | null
           created_at?: string | null
           description?: string
           due_at?: string | null
           id?: string
           is_anonymous?: boolean | null
+          last_reminder_sent_at?: string | null
           overdue?: boolean | null
+          overdue_notified_at?: string | null
           reference_number?: string
+          reporter_email?: string | null
           reporter_id?: string | null
           reporter_name?: string | null
+          resolution?: string | null
           severity?: string
           status?: string
           updated_at?: string | null
@@ -179,6 +227,13 @@ export type Database = {
           {
             foreignKeyName: "reports_assigned_to_fkey"
             columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reports_closed_by_fkey"
+            columns: ["closed_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -194,21 +249,32 @@ export type Database = {
       }
       sites: {
         Row: {
+          created_at: string | null
           id: string
           name: string
-          created_at: string | null
+          supervisor_id: string | null
         }
         Insert: {
+          created_at?: string | null
           id?: string
           name: string
-          created_at?: string | null
+          supervisor_id?: string | null
         }
         Update: {
+          created_at?: string | null
           id?: string
           name?: string
-          created_at?: string | null
+          supervisor_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "sites_supervisor_id_fkey"
+            columns: ["supervisor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       sla_rules: {
         Row: {
@@ -275,7 +341,74 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      get_user_role: { Args: { _uid: string }; Returns: string }
+      get_reports_needing_overdue_notice: {
+        Args: never
+        Returns: {
+          category: string
+          due_at: string
+          reference_number: string
+          report_id: string
+          supervisor_email: string
+          supervisor_id: string
+          supervisor_name: string
+          zone: string
+        }[]
+      }
+      get_user_role: { Args: never; Returns: string }
+      refresh_overdue_flags: { Args: never; Returns: undefined }
+      submit_public_report: {
+        Args: {
+          p_category: string
+          p_description: string
+          p_is_anonymous: boolean
+          p_reporter_email: string
+          p_reporter_name: string
+          p_severity: string
+          p_zone: string
+        }
+        Returns: {
+          id: string
+          reference_number: string
+        }[]
+      }
+      update_report_workflow: {
+        Args: {
+          p_closure_comments?: string
+          p_report_id: string
+          p_resolution?: string
+          p_status: string
+        }
+        Returns: {
+          assigned_to: string | null
+          category: string
+          closed_at: string | null
+          closed_by: string | null
+          closure_comments: string | null
+          created_at: string | null
+          description: string
+          due_at: string | null
+          id: string
+          is_anonymous: boolean | null
+          last_reminder_sent_at: string | null
+          overdue: boolean | null
+          overdue_notified_at: string | null
+          reference_number: string
+          reporter_email: string | null
+          reporter_id: string | null
+          reporter_name: string | null
+          resolution: string | null
+          severity: string
+          status: string
+          updated_at: string | null
+          zone: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "reports"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
     }
     Enums: {
       [_ in never]: never
@@ -287,6 +420,7 @@ export type Database = {
 }
 
 type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
 type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 
 export type Tables<
@@ -403,6 +537,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {},
   },

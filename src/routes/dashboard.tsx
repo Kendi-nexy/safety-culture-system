@@ -1,19 +1,16 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useMemo, useState, type ComponentType } from "react";
 import {
-  Activity, AlertTriangle, ArrowUpRight, CheckCircle2, ChevronRight,
-  Eye, FileWarning, Filter, Flame, HardHat, MapPin, Search,
-  Siren, Sparkles, TrendingDown, TrendingUp, Zap,
+  Activity, AlertTriangle, ArrowRight, ArrowUpRight, CheckCircle2, ChevronRight,
+  Eye, FileWarning, MapPin, Siren, Sparkles, TrendingUp, Zap,
 } from "lucide-react";
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Toaster } from "@/components/ui/sonner";
-import { TopNav, SiteFooter, useAuth, can, type Role } from "@/lib/app-shell";
+import { TopNav, SiteFooter, useAuth, type Role } from "@/lib/app-shell";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 
@@ -27,25 +24,8 @@ export const Route = createFileRoute("/dashboard")({
   }),
 });
 
-/*
- * NOTE ON AUTH: this dashboard now queries Supabase directly for everything
- * below. That works for `select` calls allowed to any signed-in session
- * ("hse and admin see all reports" etc.) — but the current staff sign-in
- * (see src/lib/app-shell.tsx useAuth()) is still a local-only demo picker,
- * not a real supabase.auth session. Until real Supabase Auth + a matching
- * `profiles` row exists for the signed-in user, RLS will correctly return
- * zero rows here rather than leaking data — the queries themselves are
- * correct and will start working the moment real auth is wired in.
- */
-
-const severityStyles: Record<string, string> = {
-  high: "bg-destructive/10 text-destructive border-destructive/30",
-  medium: "bg-primary/10 text-primary border-primary/30",
-  low: "bg-accent/10 text-accent border-accent/30",
-};
 const statusStyles: Record<string, string> = {
   open: "bg-destructive/10 text-destructive border-destructive/30",
-  assigned: "bg-primary/10 text-primary border-primary/30",
   in_progress: "bg-primary/10 text-primary border-primary/30",
   resolved: "bg-accent/10 text-accent border-accent/30",
   closed: "bg-accent/10 text-accent border-accent/30",
@@ -65,36 +45,39 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 type Report = Tables<"reports">;
 type StatusLogRow = Tables<"status_log">;
+type Profile = Tables<"profiles">;
 
 function useDashboardData() {
   const [reports, setReports] = useState<Report[] | null>(null);
   const [statusLog, setStatusLog] = useState<StatusLogRow[] | null>(null);
+  const [profiles, setProfiles] = useState<Profile[] | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
-      const [reportsRes, logRes] = await Promise.all([
+      const [reportsRes, logRes, profilesRes] = await Promise.all([
         supabase.from("reports").select("*").order("created_at", { ascending: false }).limit(200),
         supabase.from("status_log").select("*").order("changed_at", { ascending: false }).limit(200),
+        supabase.from("profiles").select("*").order("full_name"),
       ]);
       if (cancelled) return;
       setReports(reportsRes.error ? [] : (reportsRes.data ?? []));
       setStatusLog(logRes.error ? [] : (logRes.data ?? []));
+      setProfiles(profilesRes.error ? [] : (profilesRes.data ?? []));
       setLoading(false);
     }
     load();
     return () => { cancelled = true; };
   }, []);
 
-  return { reports: reports ?? [], statusLog: statusLog ?? [], loading };
+  return { reports: reports ?? [], statusLog: statusLog ?? [], profiles: profiles ?? [], loading };
 }
 
 function DashboardPage() {
   const { role, profile, ready, isAuthed } = useAuth();
-  const [search, setSearch] = useState("");
-  const { reports, statusLog, loading } = useDashboardData();
+  const { reports, statusLog, profiles, loading } = useDashboardData();
 
   useEffect(() => {
     if (ready && !isAuthed && typeof window !== "undefined") {
@@ -102,17 +85,6 @@ function DashboardPage() {
     }
   }, [ready, isAuthed]);
 
-  // Client-side search only; row visibility itself is already enforced by RLS.
-  const filtered = reports.filter(r =>
-    [r.reference_number, r.category, r.zone, r.assigned_to ?? ""].join(" ").toLowerCase().includes(search.toLowerCase())
-  );
-
-  // These hooks must run on every render regardless of auth state below —
-  // React requires the same hooks in the same order every time. Moving the
-  // "not signed in yet" early return above this point caused a real bug:
-  // "Rendered more hooks than during the previous render", because these
-  // four useMemo calls were being skipped on the first render (when `ready`
-  // was still false) and then suddenly called once `ready` became true.
   const trendData = useMemo(() => buildTrendData(reports, statusLog), [reports, statusLog]);
   const typeMix = useMemo(() => buildTypeMix(reports), [reports]);
   const zoneData = useMemo(() => buildZoneData(reports), [reports]);
@@ -131,7 +103,6 @@ function DashboardPage() {
 
   return (
     <div className="min-h-screen">
-      <Toaster position="top-right" />
       <TopNav />
       <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         <Hero role={role} profile={profile} />
@@ -202,78 +173,7 @@ function DashboardPage() {
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          <div className="xl:col-span-2 glass-card rounded-2xl overflow-hidden">
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 sm:p-5 border-b border-border">
-              <div className="flex-1 min-w-0">
-                <h3 className="text-lg font-semibold">Live reports</h3>
-                <p className="text-xs text-muted-foreground">Real-time feed from all Siginon sites</p>
-              </div>
-              <div className="relative w-full sm:w-64">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <Input placeholder="Search ref, zone, assignee…" value={search} onChange={e => setSearch(e.target.value)} className="pl-9 w-full" />
-              </div>
-              <Button variant="outline" size="sm" className="w-full sm:w-auto"><Filter className="w-4 h-4 mr-1" />Filter</Button>
-            </div>
-
-            {!loading && filtered.length === 0 && (
-              <div className="p-6 text-sm text-muted-foreground">
-                No reports visible yet. Once real staff auth is wired in and reports come through RLS, they'll show here.
-              </div>
-            )}
-
-            {/* Mobile card list */}
-            <div className="md:hidden divide-y divide-border">
-              {filtered.map(r => (
-                <div key={r.id} className="p-4 space-y-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono text-primary text-xs">
-                      <Link to="/reports/$reportId" params={{ reportId: r.id }} className="hover:underline">{r.reference_number}</Link>
-                    </span>
-                    <Badge variant="outline" className={severityStyles[r.severity]}>{r.severity}</Badge>
-                    <Badge variant="outline" className={statusStyles[r.status]}>{r.status.replace("_", " ")}</Badge>
-                    <span className="ml-auto text-xs text-muted-foreground">{timeAgo(r.created_at)}</span>
-                  </div>
-                  <div className="text-sm font-medium capitalize">{r.category.replace("_", " ")}</div>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                    <span className="inline-flex items-center gap-1"><MapPin className="w-3 h-3" /> {r.zone}</span>
-                    <span>Assignee: {r.assigned_to ?? "—"}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Desktop table */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-xs uppercase tracking-wider text-muted-foreground bg-muted/50">
-                    <th className="text-left px-5 py-3 font-medium">Reference</th>
-                    <th className="text-left px-3 py-3 font-medium">Type</th>
-                    <th className="text-left px-3 py-3 font-medium">Zone</th>
-                    <th className="text-left px-3 py-3 font-medium">Severity</th>
-                    <th className="text-left px-3 py-3 font-medium">Status</th>
-                    <th className="text-left px-3 py-3 font-medium">Assignee</th>
-                    <th className="text-right px-5 py-3 font-medium">Logged</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map(r => (
-                    <tr key={r.id} className="border-t border-border hover:bg-muted/40 transition-colors">
-                      <td className="px-5 py-3.5 font-mono text-primary text-xs">
-                        <Link to="/reports/$reportId" params={{ reportId: r.id }} className="hover:underline">{r.reference_number}</Link>
-                      </td>
-                      <td className="px-3 py-3.5 capitalize">{r.category.replace("_", " ")}</td>
-                      <td className="px-3 py-3.5"><span className="inline-flex items-center gap-1 text-muted-foreground"><MapPin className="w-3 h-3" />{r.zone}</span></td>
-                      <td className="px-3 py-3.5"><Badge variant="outline" className={severityStyles[r.severity]}>{r.severity}</Badge></td>
-                      <td className="px-3 py-3.5"><Badge variant="outline" className={statusStyles[r.status]}>{r.status.replace("_", " ")}</Badge></td>
-                      <td className="px-3 py-3.5 text-muted-foreground">{r.assigned_to ?? "—"}</td>
-                      <td className="px-5 py-3.5 text-right text-muted-foreground text-xs">{timeAgo(r.created_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <RecentReportsCard reports={reports} profiles={profiles} loading={loading} />
 
           <div className="space-y-6">
             <div className="glass-card rounded-2xl p-6">
@@ -399,6 +299,11 @@ function Hero({ role, profile }: { role: Role; profile: Tables<"profiles"> | nul
           </p>
         </div>
         <div className="flex gap-3 w-full md:w-auto">
+          <Link to="/reports" className="w-full md:w-auto">
+            <Button size="lg" className="w-full md:w-auto">
+              All reports <ArrowRight className="w-4 h-4 ml-1" />
+            </Button>
+          </Link>
           <Link to="/" className="w-full md:w-auto">
             <Button size="lg" variant="outline" className="w-full md:w-auto">
               View public report page <ArrowUpRight className="w-4 h-4 ml-1" />
@@ -429,8 +334,96 @@ function KpiRow({ kpis }: { kpis: ReturnType<typeof buildKpis> }) {
   );
 }
 
+/**
+ * Compact table summary — full table with search, status editing, and
+ * closure workflow lives at /reports (same pattern as /users). Clicking a
+ * row here opens that report's full detail page for the complete view.
+ */
+function RecentReportsCard({
+  reports,
+  profiles,
+  loading,
+}: {
+  reports: Report[];
+  profiles: Profile[];
+  loading: boolean;
+}) {
+  const recent = reports.slice(0, 8);
+  const navigate = useNavigate();
+
+  return (
+    <div className="xl:col-span-2 glass-card rounded-2xl overflow-hidden">
+      <div className="flex items-center justify-between gap-3 p-4 sm:p-5 border-b border-border">
+        <div>
+          <h3 className="text-lg font-semibold">Recent reports</h3>
+          <p className="text-xs text-muted-foreground">Newest submissions across all sites</p>
+        </div>
+        <Link to="/reports">
+          <Button variant="outline" size="sm">
+            View all reports <ArrowRight className="w-3.5 h-3.5 ml-1" />
+          </Button>
+        </Link>
+      </div>
+
+      {!loading && recent.length === 0 && (
+        <div className="p-6 text-sm text-muted-foreground">
+          No reports yet — once submitted, they'll show up here.
+        </div>
+      )}
+
+      {recent.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs uppercase tracking-wider text-muted-foreground bg-muted/50">
+                <th className="text-left px-5 py-2.5 font-medium">Reference</th>
+                <th className="text-left px-3 py-2.5 font-medium">Type</th>
+                <th className="text-left px-3 py-2.5 font-medium">Zone</th>
+                <th className="text-left px-3 py-2.5 font-medium">Status</th>
+                <th className="text-left px-3 py-2.5 font-medium">Assignee</th>
+                <th className="text-right px-5 py-2.5 font-medium">Logged</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recent.map(r => (
+                <tr
+                  key={r.id}
+                  className="border-t border-border hover:bg-muted/40 transition-colors cursor-pointer"
+                  onClick={() => navigate({ to: "/reports/$reportId", params: { reportId: r.id } })}
+                >
+                  <td className="px-5 py-3 font-mono text-primary text-xs font-semibold">{r.reference_number}</td>
+                  <td className="px-3 py-3 capitalize">{r.category.replace("_", " ")}</td>
+                  <td className="px-3 py-3">
+                    <span className="inline-flex items-center gap-1 text-muted-foreground"><MapPin className="w-3 h-3" />{r.zone}</span>
+                  </td>
+                  <td className="px-3 py-3">
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant="outline" className={statusStyles[r.status]}>{r.status.replace("_", " ")}</Badge>
+                      {r.overdue && (
+                        <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/30">Overdue</Badge>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 text-muted-foreground">{assigneeName(r, profiles)}</td>
+                  <td className="px-5 py-3 text-right text-muted-foreground text-xs">{timeAgo(r.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function assigneeName(report: Report, profiles: Profile[]) {
+  if (!report.assigned_to) return "Unassigned";
+  const assignee = profiles.find(p => p.id === report.assigned_to);
+  return assignee?.full_name ?? report.assigned_to;
+}
+
 function ActivityFeed({ reports, statusLog }: { reports: Report[]; statusLog: StatusLogRow[] }) {
-  type FeedItem = { icon: any; tone: string; text: string; meta: string; ts: number };
+  type FeedItem = { icon: ComponentType<{ className?: string }>; tone: string; text: string; meta: string; ts: number };
 
   const fromLog: FeedItem[] = statusLog.slice(0, 10).map(s => {
     const report = reports.find(r => r.id === s.report_id);
