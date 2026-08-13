@@ -1,8 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
-  ArrowLeft, Building2, CalendarClock, CheckCircle2, Mail, MessageSquare,
-  Send, UserRound,
+  ArrowLeft, Building2, CalendarClock, CheckCircle2, Image as ImageIcon, Mail,
+  Maximize2, MessageSquare, Send, UserRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +30,7 @@ export const Route = createFileRoute("/reports/$reportId")({
 type Report = Tables<"reports">;
 type Profile = Tables<"profiles">;
 type CommentRow = Tables<"comments">;
+type AttachmentRow = Tables<"attachments">;
 
 const statusStyles: Record<string, string> = {
   open: "bg-destructive/10 text-destructive border-destructive/30",
@@ -63,6 +64,9 @@ function ReportDetailPage() {
   const [newComment, setNewComment] = useState("");
   const [postingComment, setPostingComment] = useState(false);
 
+  const [attachments, setAttachments] = useState<AttachmentRow[]>([]);
+  const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string>>({});
+
   useEffect(() => {
     if (ready && !isAuthed && typeof window !== "undefined") {
       window.location.href = "/auth";
@@ -73,10 +77,11 @@ function ReportDetailPage() {
     let cancelled = false;
     async function load() {
       setLoading(true);
-      const [reportRes, profilesRes, commentsRes] = await Promise.all([
+      const [reportRes, profilesRes, commentsRes, attachmentsRes] = await Promise.all([
         supabase.from("reports").select("*").eq("id", reportId).maybeSingle(),
         supabase.from("profiles").select("*").order("full_name"),
         supabase.from("comments").select("*").eq("report_id", reportId).order("created_at", { ascending: true }),
+        supabase.from("attachments").select("*").eq("report_id", reportId).order("created_at", { ascending: true }),
       ]);
       if (cancelled) return;
       if (reportRes.error || !reportRes.data) {
@@ -88,6 +93,33 @@ function ReportDetailPage() {
       }
       setProfiles(profilesRes.error ? [] : (profilesRes.data ?? []));
       setComments(commentsRes.error ? [] : (commentsRes.data ?? []));
+
+      const attachmentRows = attachmentsRes.error ? [] : (attachmentsRes.data ?? []);
+      if (attachmentsRes.error) {
+        console.error("Failed to load attachments:", attachmentsRes.error);
+      }
+      setAttachments(attachmentRows);
+
+      // Signed URLs (not public ones) so this works whether or not the
+      // report-attachments bucket is private — each URL is short-lived and
+      // only issued to someone whose session already has SELECT access to
+      // that storage object via RLS.
+      if (attachmentRows.length > 0) {
+        const entries = await Promise.all(
+          attachmentRows.map(async a => {
+            const { data: signed } = await supabase.storage
+              .from("report-attachments")
+              .createSignedUrl(a.storage_path, 3600);
+            return [a.id, signed?.signedUrl ?? null] as const;
+          })
+        );
+        if (!cancelled) {
+          setAttachmentUrls(Object.fromEntries(entries.filter((e): e is [string, string] => e[1] !== null)));
+        }
+      } else {
+        setAttachmentUrls({});
+      }
+
       setLoading(false);
     }
     if (isAuthed) load();
@@ -236,6 +268,42 @@ function ReportDetailPage() {
                 {report.description?.trim() || "No description provided."}
               </p>
             </div>
+
+            {attachments.length > 0 && (
+              <div>
+                <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1">
+                  <ImageIcon className="w-3 h-3" /> Photos ({attachments.length})
+                </div>
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                  {attachments.map(a => {
+                    const url = attachmentUrls[a.id];
+                    return (
+                      <a
+                        key={a.id}
+                        href={url ?? undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={`relative aspect-square rounded-lg overflow-hidden border border-border bg-muted/40 group ${url ? "" : "pointer-events-none opacity-60"}`}
+                        title={a.file_name ?? undefined}
+                      >
+                        {url ? (
+                          <>
+                            <img src={url} alt={a.file_name ?? "Attachment"} className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                              <Maximize2 className="w-4 h-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </div>
+                          </>
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-xs text-muted-foreground">
+                            Unavailable
+                          </div>
+                        )}
+                      </a>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {report.status === "closed" && (report.resolution || report.closure_comments) && (
               <div className="space-y-2">

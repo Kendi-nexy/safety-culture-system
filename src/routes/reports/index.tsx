@@ -103,8 +103,8 @@ function ReportsPage() {
     const { data, error } = await supabase.rpc("update_report_workflow", {
       p_report_id: report.id,
       p_status: nextStatus,
-      p_resolution: null,
-      p_closure_comments: null,
+      p_resolution: undefined,
+      p_closure_comments: undefined,
     });
     setSavingReportId(null);
 

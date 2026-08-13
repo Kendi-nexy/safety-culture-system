@@ -166,11 +166,7 @@ export function TopNav() {
             alt="Siginon Group"
             className="h-9 sm:h-10 w-auto object-contain"
           />
-          <div className="hidden sm:block leading-tight">
-            <div className="font-bold text-sm tracking-tight leading-none">Safety Culture</div>
-            <div className="text-[10px] uppercase tracking-widest text-accent font-semibold mt-0.5">System</div>
-          </div>
-        </Link>
+          </Link>
 
         <nav className="hidden lg:flex items-center gap-1 ml-4">
           {items.map(it => {
