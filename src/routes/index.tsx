@@ -72,14 +72,11 @@ function LandingPage() {
       <Toaster position="top-right" />
       <TopNav />
 
-      {/* Full-bleed dark hero */}
       <section className="relative overflow-hidden bg-gradient-to-br from-[#160f36] via-[#1c1046] to-[#2a1230]">
         <div className="absolute -left-24 top-1/3 w-96 h-96 rounded-full bg-accent/25 blur-[100px]" />
         <div className="absolute right-0 -top-24 w-[32rem] h-[32rem] rounded-full bg-primary/25 blur-[120px]" />
         <div className="absolute right-1/4 bottom-0 w-72 h-72 rounded-full bg-primary/15 blur-[100px]" />
 
-        {/* Photo fades into the gradient on its left/top/bottom edges (baked
-            into the PNG itself) rather than sitting as a hard rectangle. */}
         <img
           src="/hero-worker.png"
           alt=""
@@ -102,30 +99,20 @@ function LandingPage() {
             <div className="mt-8 flex flex-col sm:flex-row flex-wrap gap-3">
               <a href="#report" className="w-full sm:w-auto">
                 <Button size="lg" className="w-full sm:w-auto bg-accent text-accent-foreground hover:bg-accent/90 font-semibold shadow-lg shadow-accent/30">
-                  <Plus className="w-4 h-4 mr-1.5" /> New report
+                  <Plus className="w-4 h-4 mr-1.5" />Report an issue
                 </Button>
               </a>
               <Link to="/auth" className="w-full sm:w-auto">
                 <Button size="lg" variant="outline" className="w-full sm:w-auto bg-white/5 border-white/25 text-white hover:bg-white/10 hover:text-white">
-                  Staff dashboard <ArrowRight className="w-4 h-4 ml-1.5" />
+                  HSE Sign in <ArrowRight className="w-4 h-4 ml-1.5" />
                 </Button>
               </Link>
-            </div>
-
-            <div className="mt-8 flex flex-wrap items-center gap-3">
-              <HeroStat value="47" label="days without LTI" />
-              <HeroStat value="112" label="good catches this month" accent />
-              <HeroStat value="98%" label="PPE compliance" />
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 border border-white/15 rounded-full px-2.5 py-1">
-                Sample data
-              </span>
             </div>
           </div>
         </div>
       </section>
 
       <main className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12 space-y-10">
-        {/* Report form + types */}
         <section id="report" className="grid lg:grid-cols-[1.3fr_1fr] gap-6">
           <div className="glass-card rounded-3xl p-6 sm:p-8">
             <ReportForm />
@@ -154,7 +141,6 @@ function LandingPage() {
           </div>
         </section>
 
-        {/* My recent reports + tips */}
         <section className="grid lg:grid-cols-[1.5fr_1fr] gap-6">
           <MyRecentReports />
 
@@ -191,9 +177,6 @@ function HeroStat({ value, label, accent }: { value: string; label: string; acce
   );
 }
 
-// Reads locally-remembered reference numbers (see MY_REPORTS_KEY) and looks
-// them up live. This is the practical stand-in for "your recent reports"
-// while public reporters have no real account/session — see README.
 function MyRecentReports() {
   const [reports, setReports] = useState<Tables<"reports">[] | null>(null);
 
@@ -257,6 +240,7 @@ function ReportForm() {
   const [sites, setSites] = useState<Tables<"sites">[] | null>(null);
   const [description, setDescription] = useState("");
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [anonymous, setAnonymous] = useState(false);
   const [severity, setSeverity] = useState("Medium");
   const [photos, setPhotos] = useState<{ file: File; url: string }[]>([]);
@@ -297,26 +281,21 @@ function ReportForm() {
     }
     setSubmitting(true);
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const reporterId = sessionData?.session?.user?.id ?? null;
+      const { data: rpcResult, error } = await supabase.rpc("submit_public_report", {
+        p_category: TYPE_TO_CATEGORY[type],
+        p_description: description,
+        p_zone: zone.trim(),
+        p_severity: severity.toLowerCase(),
+        p_is_anonymous: anonymous,
+        p_reporter_name: anonymous ? "" : (name.trim() || ""),
+        p_reporter_email: anonymous ? "" : (email.trim() || ""),
+      });
 
-      const { data: report, error } = await supabase
-        .from("reports")
-        .insert({
-          category: TYPE_TO_CATEGORY[type],
-          description,
-          zone: zone.trim(),
-          severity: severity.toLowerCase(),
-          is_anonymous: anonymous,
-          reporter_name: anonymous ? null : (name.trim() || null),
-          reporter_id: reporterId,
-        })
-        .select()
-        .single();
-
-      if (error || !report) throw error ?? new Error("Insert failed");
+      const report = rpcResult?.[0];
+      if (error || !report) throw error ?? new Error("Submission failed");
 
       // Upload photos to Storage, then record each in `attachments`.
+      let failedAttachments = 0;
       for (const p of photos) {
         const path = `${report.id}/${Date.now()}-${p.file.name}`;
         const { error: uploadError } = await supabase.storage
@@ -324,28 +303,39 @@ function ReportForm() {
           .upload(path, p.file);
         if (uploadError) {
           console.error("Attachment upload failed:", uploadError);
+          failedAttachments++;
           continue; // don't block the whole submission over one photo
         }
-        await supabase.from("attachments").insert({
+        const { error: attachError } = await supabase.from("attachments").insert({
           report_id: report.id,
           storage_path: path,
           file_name: p.file.name,
           tag: "supporting",
         });
+        if (attachError) {
+          console.error("Attachment record failed:", attachError);
+          failedAttachments++;
+        }
       }
 
-      // Remember this reference locally so "Your recent reports" can find it.
       const existing: string[] = JSON.parse(localStorage.getItem(MY_REPORTS_KEY) ?? "[]");
       localStorage.setItem(MY_REPORTS_KEY, JSON.stringify([report.reference_number, ...existing].slice(0, 20)));
 
-      toast.success("Report submitted", {
-        description: `Reference ${report.reference_number} · ${photos.length} photo${photos.length === 1 ? "" : "s"} · reviewed within 24h`,
-      });
+      if (failedAttachments > 0) {
+        toast.warning("Report submitted, but some photos didn't attach", {
+          description: `Reference ${report.reference_number} · ${failedAttachments} of ${photos.length} photo${photos.length === 1 ? "" : "s"} failed to save. The report itself was still logged.`,
+        });
+      } else {
+        toast.success("Report submitted", {
+          description: `Reference ${report.reference_number} · ${photos.length} photo${photos.length === 1 ? "" : "s"} · reviewed within 24h`,
+        });
+      }
 
       photos.forEach(p => URL.revokeObjectURL(p.url));
       setPhotos([]);
       setDescription("");
       setName("");
+      setEmail("");
       setZone("");
       setSeverity("Medium");
       setAnonymous(false);
@@ -456,9 +446,21 @@ function ReportForm() {
       </div>
 
       {!anonymous && (
-        <div>
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Your name</Label>
-          <Input value={name} onChange={e => setName(e.target.value)} placeholder="Full name" className="mt-1.5" />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Your name</Label>
+            <Input value={name} onChange={e => setName(e.target.value)} placeholder="Full name" className="mt-1.5" />
+          </div>
+          <div>
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Email (optional)</Label>
+            <Input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="For a confirmation only"
+              className="mt-1.5"
+            />
+          </div>
         </div>
       )}
 

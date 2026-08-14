@@ -16,7 +16,8 @@ import { Route as CorrectiveActionsRouteImport } from './routes/corrective-actio
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as UsersRouteImport } from './routes/users'
 import { Route as ZonesRouteImport } from './routes/zones'
-import { Route as ReportsReportIdRouteImport } from './routes/reports.$reportId'
+import { Route as ReportsIndexRouteImport } from './routes/reports/index'
+import { Route as ReportsReportIdRouteImport } from './routes/reports/$reportId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -53,6 +54,11 @@ const ZonesRoute = ZonesRouteImport.update({
   path: '/zones',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ReportsIndexRoute = ReportsIndexRouteImport.update({
+  id: '/reports/',
+  path: '/reports/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ReportsReportIdRoute = ReportsReportIdRouteImport.update({
   id: '/reports/$reportId',
   path: '/reports/$reportId',
@@ -68,6 +74,7 @@ export interface FileRoutesByFullPath {
   '/users': typeof UsersRoute
   '/zones': typeof ZonesRoute
   '/reports/$reportId': typeof ReportsReportIdRoute
+  '/reports/': typeof ReportsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -78,6 +85,7 @@ export interface FileRoutesByTo {
   '/users': typeof UsersRoute
   '/zones': typeof ZonesRoute
   '/reports/$reportId': typeof ReportsReportIdRoute
+  '/reports': typeof ReportsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -89,6 +97,7 @@ export interface FileRoutesById {
   '/users': typeof UsersRoute
   '/zones': typeof ZonesRoute
   '/reports/$reportId': typeof ReportsReportIdRoute
+  '/reports/': typeof ReportsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -101,6 +110,7 @@ export interface FileRouteTypes {
     | '/users'
     | '/zones'
     | '/reports/$reportId'
+    | '/reports/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -111,6 +121,7 @@ export interface FileRouteTypes {
     | '/users'
     | '/zones'
     | '/reports/$reportId'
+    | '/reports'
   id:
     | '__root__'
     | '/'
@@ -121,6 +132,7 @@ export interface FileRouteTypes {
     | '/users'
     | '/zones'
     | '/reports/$reportId'
+    | '/reports/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -132,6 +144,7 @@ export interface RootRouteChildren {
   UsersRoute: typeof UsersRoute
   ZonesRoute: typeof ZonesRoute
   ReportsReportIdRoute: typeof ReportsReportIdRoute
+  ReportsIndexRoute: typeof ReportsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -185,6 +198,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ZonesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/reports/': {
+      id: '/reports/'
+      path: '/reports'
+      fullPath: '/reports/'
+      preLoaderRoute: typeof ReportsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/reports/$reportId': {
       id: '/reports/$reportId'
       path: '/reports/$reportId'
@@ -204,6 +224,7 @@ const rootRouteChildren: RootRouteChildren = {
   UsersRoute: UsersRoute,
   ZonesRoute: ZonesRoute,
   ReportsReportIdRoute: ReportsReportIdRoute,
+  ReportsIndexRoute: ReportsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

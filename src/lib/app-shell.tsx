@@ -1,5 +1,5 @@
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import {
   Activity, Bell, ClipboardList, FileWarning, LayoutDashboard,
@@ -25,12 +25,30 @@ const DB_ROLE_TO_LABEL: Record<string, Role> = {
 
 type Profile = Tables<"profiles">;
 
-// Real Supabase Auth session + the matching `profiles` row, which is what
-// actually drives RLS-scoped queries (assignee/hse/admin visibility, etc).
-// If a user signs in but has no `profiles` row yet (e.g. wasn't seeded),
-// `role`/`profile` stay null — see supabase/seed/seed_staff_profiles.sql for
-// how to link an auth user to a role.
-export function useAuth() {
+type AuthValue = {
+  session: Session | null;
+  profile: Profile | null;
+  role: Role | null;
+  ready: boolean;
+  signIn: (email: string, password: string) => Promise<{ error: unknown }>;
+  signOut: () => Promise<void>;
+  isAuthed: boolean;
+  missingProfile: boolean;
+};
+
+const AuthContext = createContext<AuthValue | null>(null);
+
+/**
+ * Mount this ONCE, above the router (in your root route), not per-page.
+ * It owns the single supabase.auth.getSession() call + onAuthStateChange
+ * subscription for the whole app lifetime. Every page then just reads
+ * from context instead of re-running that fetch on every navigation —
+ * that per-navigation re-fetch was what caused the "Redirecting to sign
+ * in…" flash on every single page change, since each route used to call
+ * useAuth() as an independent hook with its own ready=false starting
+ * state.
+ */
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [ready, setReady] = useState(false);
@@ -77,7 +95,7 @@ export function useAuth() {
 
   const role = profile ? (DB_ROLE_TO_LABEL[profile.role] ?? null) : null;
 
-  return {
+  const value: AuthValue = {
     session,
     profile,
     role,
@@ -89,6 +107,19 @@ export function useAuth() {
     // row — a distinct state from "not signed in" worth surfacing in the UI.
     missingProfile: session !== null && ready && profile === null,
   };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+// Every page/component keeps calling useAuth() exactly as before — the only
+// thing that changed is this now reads shared state from AuthProvider
+// instead of running its own independent fetch.
+export function useAuth(): AuthValue {
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
+    throw new Error("useAuth() must be used within <AuthProvider>. Wrap your root route's component with it.");
+  }
+  return ctx;
 }
 
 export const roleColors: Record<Role, string> = {
@@ -135,11 +166,7 @@ export function TopNav() {
             alt="Siginon Group"
             className="h-9 sm:h-10 w-auto object-contain"
           />
-          <div className="hidden sm:block leading-tight">
-            <div className="font-bold text-sm tracking-tight leading-none">Safety Culture</div>
-            <div className="text-[10px] uppercase tracking-widest text-accent font-semibold mt-0.5">System</div>
-          </div>
-        </Link>
+          </Link>
 
         <nav className="hidden lg:flex items-center gap-1 ml-4">
           {items.map(it => {

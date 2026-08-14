@@ -28,13 +28,21 @@ function AuthPage() {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
-    const { error } = await signIn(email, password);
+    const result = (await signIn(email, password)) as { error?: unknown };
     setSubmitting(false);
-    if (error) {
+    if (result.error) {
+      const errorMessage =
+        typeof result.error === "object" &&
+        result.error !== null &&
+        "message" in result.error &&
+        typeof (result.error as any).message === "string"
+          ? (result.error as any).message
+          : String(result.error);
+
       setError(
-        error.message === "Invalid login credentials"
+        errorMessage === "Invalid login credentials"
           ? "Email or password is incorrect."
-          : error.message
+          : errorMessage
       );
       return;
     }
@@ -99,11 +107,6 @@ function AuthPage() {
           >
             {submitting ? "Signing in…" : "Sign in"} <ArrowRight className="w-4 h-4 ml-1.5" />
           </Button>
-          <p className="text-xs text-center text-muted-foreground">
-            Your account must already exist in Supabase Auth with a matching{" "}
-            <code className="text-[11px]">profiles</code> row — see{" "}
-            <code className="text-[11px]">supabase/seed/seed_staff_profiles.sql</code>.
-          </p>
         </form>
       </main>
       <SiteFooter />
