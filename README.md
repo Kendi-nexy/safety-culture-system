@@ -1,6 +1,6 @@
 # SafeGuard - Siginon Safety Culture System
 
-A workplace safety reporting and tracking app built for Siginon, developed as a JKUAT industrial attachment project.
+A workplace safety reporting and tracking app built for Siginon, developed as an industrial attachment project.
 
 ## What it does
 
