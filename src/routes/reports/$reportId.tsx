@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
-  ArrowLeft, Building2, CalendarClock, CheckCircle2, Image as ImageIcon, Mail,
+  ArrowLeft, ArrowUpRight, Building2, CalendarClock, CheckCircle2, Image as ImageIcon, Mail,
   Maximize2, MessageSquare, Send, UserRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -215,10 +215,10 @@ function ReportDetailPage() {
       <TopNav />
       <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         <Link to="/dashboard">
-          <Button variant="outline" size="sm">
-            <ArrowLeft className="w-4 h-4 mr-1" /> Back to dashboard
-          </Button>
-        </Link>
+            <Button variant="outline" size="sm">
+              Back to dashboard <ArrowUpRight className="w-4 h-4 ml-1" />
+            </Button>
+          </Link>
 
         {loading && (
           <div className="glass-card rounded-2xl p-8 text-sm text-muted-foreground">Loading report…</div>

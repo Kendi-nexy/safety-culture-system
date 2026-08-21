@@ -17,7 +17,6 @@ export const ROLES: Role[] = ["Employee", ...STAFF_ROLES];
 // profiles.role is stored lowercase per the DB check constraint; map to the
 // friendlier labels used throughout the UI.
 const DB_ROLE_TO_LABEL: Record<string, Role> = {
-  employee: "Employee",
   supervisor: "Supervisor",
   hse: "HSE Officer",
   admin: "Admin",

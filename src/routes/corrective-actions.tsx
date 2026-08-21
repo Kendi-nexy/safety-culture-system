@@ -38,30 +38,26 @@ const severityStyles: Record<string, string> = {
   medium: "bg-primary/10 text-primary border-primary/30",
   low: "bg-accent/10 text-accent border-accent/30",
 };
+const statusStyles: Record<string, string> = {
+  open: "bg-destructive/10 text-destructive border-destructive/30",
+  assigned: "bg-primary/10 text-primary border-primary/30",
+  in_progress: "bg-primary/10 text-primary border-primary/30",
+  resolved: "bg-amber-500/10 text-amber-600 border-amber-500/30",
+  closed: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
+  reopened: "bg-destructive/10 text-destructive border-destructive/30",
+};
 
-const STATUS_COLUMNS = [
+const STATUS_FILTERS = [
+  { key: "active", label: "All active" },
   { key: "open", label: "Open" },
   { key: "assigned", label: "Assigned" },
   { key: "in_progress", label: "In progress" },
   { key: "resolved", label: "Resolved" },
+  { key: "closed", label: "Closed" },
 ] as const;
-type StatusKey = (typeof STATUS_COLUMNS)[number]["key"] | "closed" | "reopened";
+type StatusFilterKey = (typeof STATUS_FILTERS)[number]["key"];
 
-const STATUS_FLOW: Record<string, string | null> = {
-  open: "assigned",
-  assigned: "in_progress",
-  in_progress: "resolved",
-  resolved: "closed",
-  reopened: "assigned",
-  closed: null,
-};
-const NEXT_LABEL: Record<string, string> = {
-  open: "Assign",
-  assigned: "Start work",
-  in_progress: "Mark resolved",
-  resolved: "Close out",
-  reopened: "Re-assign",
-};
+const STATUS_ORDER = ["open", "assigned", "in_progress", "resolved", "closed", "reopened"] as const;
 
 type Report = Tables<"reports">;
 type Profile = Tables<"profiles">;
@@ -100,6 +96,16 @@ function isOverdue(r: Report): boolean {
   return new Date(r.due_at).getTime() < Date.now();
 }
 
+// Shared background tint for a report row/card: red if overdue, green once
+// closed, otherwise transparent. Used everywhere a report list appears so
+// "closed" reads the same visual language across the app.
+function rowTint(r: Report): string {
+  if (isOverdue(r)) return "bg-destructive/10";
+  if (r.status === "closed") return "bg-emerald-500/10";
+  if (r.status === "resolved") return "bg-amber-500/10";
+  return "";
+}
+
 function dueLabel(r: Report): string {
   if (!r.due_at) return "No due date";
   const diffMs = new Date(r.due_at).getTime() - Date.now();
@@ -110,16 +116,11 @@ function dueLabel(r: Report): string {
   return `Due in ${days}d`;
 }
 
-function initials(name: string | null | undefined): string {
-  if (!name) return "?";
-  return name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
-}
-
 function CorrectiveActionsPage() {
   const { role, ready, isAuthed } = useAuth();
   const { reports, assignees, loading, reload } = useCorrectiveActionsData();
   const [search, setSearch] = useState("");
-  const [showClosed, setShowClosed] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<StatusFilterKey>("active");
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -134,11 +135,12 @@ function CorrectiveActionsPage() {
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return reports.filter(r => {
-      if (!showClosed && r.status === "closed") return false;
+      if (statusFilter === "active" && r.status === "closed") return false;
+      if (statusFilter !== "active" && r.status !== statusFilter) return false;
       if (!q) return true;
       return [r.reference_number, r.category, r.zone, r.assigned_to ?? ""].join(" ").toLowerCase().includes(q);
     });
-  }, [reports, search, showClosed]);
+  }, [reports, search, statusFilter]);
 
   const kpis = useMemo(() => {
     const active = reports.filter(r => r.status !== "closed");
@@ -169,17 +171,16 @@ function CorrectiveActionsPage() {
     reload();
   }
 
-  async function advanceStatus(report: Report) {
-    const next = STATUS_FLOW[report.status];
-    if (!next) return;
+  async function updateStatus(report: Report, nextStatus: string) {
+    if (nextStatus === report.status) return;
     setBusyId(report.id);
-    const { error } = await supabase.from("reports").update({ status: next }).eq("id", report.id);
+    const { error } = await supabase.from("reports").update({ status: nextStatus }).eq("id", report.id);
     setBusyId(null);
     if (error) {
       toast.error("Couldn't update status", { description: error.message });
       return;
     }
-    toast.success(`${report.reference_number} → ${next.replace("_", " ")}`);
+    toast.success(`${report.reference_number} → ${nextStatus.replace("_", " ")}`);
     reload();
   }
 
@@ -203,9 +204,6 @@ function CorrectiveActionsPage() {
           <div>
             <div className="text-xs uppercase tracking-widest text-muted-foreground">Follow-through</div>
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mt-1">Corrective Actions</h1>
-            <p className="text-muted-foreground text-sm mt-1">
-              Assign owners, track due dates and drive every open report to close-out.
-            </p>
           </div>
           <Link to="/dashboard">
             <Button variant="outline" size="sm">
@@ -248,102 +246,141 @@ function CorrectiveActionsPage() {
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input placeholder="Search ref, zone, assignee…" value={search} onChange={e => setSearch(e.target.value)} className="pl-9 w-full" />
           </div>
-          <Button
-            variant={showClosed ? "default" : "outline"}
-            size="sm"
-            onClick={() => setShowClosed(s => !s)}
-            className={showClosed ? "bg-primary text-primary-foreground" : ""}
-          >
-            {showClosed ? <CheckCircle2 className="w-4 h-4 mr-1.5" /> : null}
-            {showClosed ? "Showing closed" : "Show closed"}
-          </Button>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {STATUS_FILTERS.map(f => (
+              <Button
+                key={f.key}
+                size="sm"
+                variant={statusFilter === f.key ? "default" : "outline"}
+                className={statusFilter === f.key ? "bg-primary text-primary-foreground h-8" : "h-8"}
+                onClick={() => setStatusFilter(f.key)}
+              >
+                {f.label}
+              </Button>
+            ))}
+          </div>
         </div>
 
         {loading && <div className="text-sm text-muted-foreground">Loading corrective actions…</div>}
 
-        {/* Kanban-style board by status */}
-        <div className={`grid grid-cols-1 md:grid-cols-2 ${showClosed ? "xl:grid-cols-5" : "xl:grid-cols-4"} gap-4`}>
-          {[...STATUS_COLUMNS, ...(showClosed ? [{ key: "closed" as const, label: "Closed" }] : [])].map(col => {
-            const items = filtered.filter(r => r.status === col.key || (col.key === "open" && r.status === "reopened"));
-            return (
-              <div key={col.key} className="glass-card rounded-2xl overflow-hidden flex flex-col">
-                <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-                  <span className="text-sm font-semibold">{col.label}</span>
-                  <Badge variant="outline">{items.length}</Badge>
-                </div>
-                <div className="p-3 space-y-3 flex-1 min-h-[120px]">
-                  {items.length === 0 && (
-                    <p className="text-xs text-muted-foreground px-1 py-4 text-center">Nothing here.</p>
-                  )}
-                  {items.map(r => {
-                    const overdue = isOverdue(r);
-                    const assignee = assignees.find(a => a.id === r.assigned_to);
-                    const nextLabel = NEXT_LABEL[r.status];
-                    return (
-                      <div
-                        key={r.id}
-                        className={`rounded-xl border p-3 space-y-2 bg-card/60 ${overdue ? "border-destructive/40" : "border-border"}`}
+        {/* Compact table, one row per report */}
+        <div className="glass-card rounded-2xl overflow-hidden">
+          {!loading && filtered.length === 0 && (
+            <div className="p-6 text-sm text-muted-foreground text-center">Nothing matches this filter.</div>
+          )}
+
+          {/* Mobile card list */}
+          <div className="md:hidden divide-y divide-border">
+            {filtered.map(r => {
+              const overdue = isOverdue(r);
+              return (
+                <div key={r.id} className={`p-4 space-y-2 ${rowTint(r)}`}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Link to="/reports/$reportId" params={{ reportId: r.id }} className="font-mono text-primary text-xs hover:underline">{r.reference_number}</Link>
+                    <Badge variant="outline" className={severityStyles[r.severity]}>{r.severity}</Badge>
+                    <span className={`ml-auto text-xs ${overdue ? "text-destructive font-medium" : "text-muted-foreground"}`}>{dueLabel(r)}</span>
+                  </div>
+                  <div className="text-sm font-medium capitalize">{r.category.replace("_", " ")}</div>
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <MapPin className="w-3 h-3" /> {r.zone}
+                  </div>
+                  {canAssign ? (
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <Select value={r.status} onValueChange={v => updateStatus(r, v)} disabled={busyId === r.id || !canClose}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {STATUS_ORDER.map(s => <SelectItem key={s} value={s} className="capitalize">{s.replace("_", " ")}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <Select
+                        value={r.assigned_to ?? "__unassigned"}
+                        onValueChange={v => v !== "__unassigned" && assignTo(r, v)}
+                        disabled={busyId === r.id}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <Link to="/reports/$reportId" params={{ reportId: r.id }} className="font-mono text-[11px] text-primary hover:underline">
-                            {r.reference_number}
-                          </Link>
-                          <Badge variant="outline" className={severityStyles[r.severity]}>{r.severity}</Badge>
-                        </div>
-                        <div className="text-sm font-medium capitalize leading-snug">{r.category.replace("_", " ")}</div>
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <MapPin className="w-3 h-3" /> {r.zone}
-                        </div>
-                        <div className={`flex items-center gap-1 text-xs ${overdue ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__unassigned" disabled>Unassigned</SelectItem>
+                          {assignees.map(a => <SelectItem key={a.id} value={a.id}>{a.full_name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 pt-1">
+                      <Badge variant="outline" className={statusStyles[r.status]}>{r.status.replace("_", " ")}</Badge>
+                      <span className="text-xs text-muted-foreground">{assignees.find(a => a.id === r.assigned_to)?.full_name ?? "Unassigned"}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs uppercase tracking-wider text-muted-foreground bg-muted/50">
+                  <th className="text-left px-5 py-2.5 font-medium">Reference</th>
+                  <th className="text-left px-3 py-2.5 font-medium">Type</th>
+                  <th className="text-left px-3 py-2.5 font-medium">Zone</th>
+                  <th className="text-left px-3 py-2.5 font-medium">Severity</th>
+                  <th className="text-left px-3 py-2.5 font-medium">Due</th>
+                  <th className="text-left px-3 py-2.5 font-medium">Status</th>
+                  <th className="text-left px-3 py-2.5 font-medium">Assigned to</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(r => {
+                  const overdue = isOverdue(r);
+                  return (
+                    <tr key={r.id} className={`border-t border-border hover:bg-muted/40 transition-colors ${rowTint(r)}`}>
+                      <td className="px-5 py-2 font-mono text-primary text-xs">
+                        <Link to="/reports/$reportId" params={{ reportId: r.id }} className="hover:underline">{r.reference_number}</Link>
+                      </td>
+                      <td className="px-3 py-2 capitalize">{r.category.replace("_", " ")}</td>
+                      <td className="px-3 py-2"><span className="inline-flex items-center gap-1 text-muted-foreground"><MapPin className="w-3 h-3" />{r.zone}</span></td>
+                      <td className="px-3 py-2"><Badge variant="outline" className={severityStyles[r.severity]}>{r.severity}</Badge></td>
+                      <td className="px-3 py-2">
+                        <span className={`inline-flex items-center gap-1 text-xs ${overdue ? "text-destructive font-medium" : "text-muted-foreground"}`}>
                           {overdue ? <AlertTriangle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
                           {dueLabel(r)}
-                        </div>
-
-                        <div className="pt-2 border-t border-border space-y-2">
-                          {canAssign ? (
-                            <Select
-                              value={r.assigned_to ?? "__unassigned"}
-                              onValueChange={v => v !== "__unassigned" && assignTo(r, v)}
-                              disabled={busyId === r.id}
-                            >
-                              <SelectTrigger className="h-8 text-xs">
-                                <SelectValue placeholder="Unassigned" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="__unassigned" disabled>Unassigned</SelectItem>
-                                {assignees.map(a => (
-                                  <SelectItem key={a.id} value={a.id}>{a.full_name}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-bold text-[10px]">
-                                {initials(assignee?.full_name)}
-                              </div>
-                              {assignee?.full_name ?? "Unassigned"}
-                            </div>
-                          )}
-
-                          {nextLabel && canClose && r.status !== "closed" && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="w-full h-8 text-xs"
-                              disabled={busyId === r.id}
-                              onClick={() => advanceStatus(r)}
-                            >
-                              {busyId === r.id ? "Updating…" : nextLabel}
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        {canClose ? (
+                          <Select value={r.status} onValueChange={v => updateStatus(r, v)} disabled={busyId === r.id}>
+                            <SelectTrigger className="h-8 w-32 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {STATUS_ORDER.map(s => <SelectItem key={s} value={s} className="capitalize">{s.replace("_", " ")}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Badge variant="outline" className={statusStyles[r.status]}>{r.status.replace("_", " ")}</Badge>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        {canAssign ? (
+                          <Select
+                            value={r.assigned_to ?? "__unassigned"}
+                            onValueChange={v => v !== "__unassigned" && assignTo(r, v)}
+                            disabled={busyId === r.id}
+                          >
+                            <SelectTrigger className="h-8 w-36 text-xs"><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__unassigned" disabled>Unassigned</SelectItem>
+                              {assignees.map(a => <SelectItem key={a.id} value={a.id}>{a.full_name}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">{assignees.find(a => a.id === r.assigned_to)?.full_name ?? "Unassigned"}</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       </main>
       <SiteFooter />

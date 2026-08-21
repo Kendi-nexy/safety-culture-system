@@ -34,13 +34,14 @@ const statusStyles: Record<string, string> = {
   open: "bg-destructive/10 text-destructive border-destructive/30",
   assigned: "bg-primary/10 text-primary border-primary/30",
   in_progress: "bg-primary/10 text-primary border-primary/30",
-  resolved: "bg-accent/10 text-accent border-accent/30",
-  closed: "bg-accent/10 text-accent border-accent/30",
+  resolved: "bg-amber-500/10 text-amber-600 border-amber-500/30",
+  closed: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
   reopened: "bg-destructive/10 text-destructive border-destructive/30",
 };
 
 type Report = Tables<"reports">;
 type Site = Tables<"sites">;
+type Profile = Tables<"profiles">;
 
 // NOTE ON SCHEMA: there is no `zones`/`departments` hierarchy table yet —
 // that's still pending agreement with the partner (see backend plan doc).
@@ -51,26 +52,37 @@ type Site = Tables<"sites">;
 function useZonesData() {
   const [sites, setSites] = useState<Site[] | null>(null);
   const [reports, setReports] = useState<Report[] | null>(null);
+  const [profiles, setProfiles] = useState<Profile[] | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
-      const [sitesRes, reportsRes] = await Promise.all([
+      const [sitesRes, reportsRes, profilesRes] = await Promise.all([
         supabase.from("sites").select("*").order("name"),
         supabase.from("reports").select("*").order("created_at", { ascending: false }).limit(500),
+        supabase.from("profiles").select("*").order("full_name"),
       ]);
       if (cancelled) return;
       setSites(sitesRes.error ? [] : (sitesRes.data ?? []));
       setReports(reportsRes.error ? [] : (reportsRes.data ?? []));
+      setProfiles(profilesRes.error ? [] : (profilesRes.data ?? []));
       setLoading(false);
     }
     load();
     return () => { cancelled = true; };
   }, []);
 
-  return { sites: sites ?? [], reports: reports ?? [], loading };
+  return { sites: sites ?? [], reports: reports ?? [], profiles: profiles ?? [], loading };
+}
+
+// Resolves a report's assigned_to (a profile id) to a display name, same
+// pattern used on Dashboard and the Reports page.
+function assigneeName(report: Report, profiles: Profile[]) {
+  if (!report.assigned_to) return "—";
+  const assignee = profiles.find(p => p.id === report.assigned_to);
+  return assignee?.full_name ?? "—";
 }
 
 function timeAgo(iso: string | null): string {
@@ -82,6 +94,17 @@ function timeAgo(iso: string | null): string {
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs} h ago`;
   return `${Math.floor(hrs / 24)} d ago`;
+}
+
+// Shared background tint for a report row/card: red if overdue, green once
+// closed, amber if resolved, otherwise transparent. Same rule used on
+// Dashboard and Corrective Actions, so "closed" reads the same everywhere.
+function rowTint(r: Report): string {
+  const overdue = r.due_at && !["resolved", "closed"].includes(r.status) && new Date(r.due_at).getTime() < Date.now();
+  if (overdue) return "bg-destructive/10";
+  if (r.status === "closed") return "bg-emerald-500/10";
+  if (r.status === "resolved") return "bg-amber-500/10";
+  return "";
 }
 
 type SiteSummary = {
@@ -114,7 +137,7 @@ function buildSiteSummaries(sites: Site[], reports: Report[]): SiteSummary[] {
 
 function ZonesPage() {
   const { role, ready, isAuthed } = useAuth();
-  const { sites, reports, loading } = useZonesData();
+  const { sites, reports, profiles, loading } = useZonesData();
   const [selectedSite, setSelectedSite] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
@@ -138,9 +161,9 @@ function ZonesPage() {
     if (!search.trim()) return base;
     const q = search.toLowerCase();
     return base.filter(r =>
-      [r.reference_number, r.category, r.zone, r.assigned_to ?? ""].join(" ").toLowerCase().includes(q)
+      [r.reference_number, r.category, r.zone, assigneeName(r, profiles)].join(" ").toLowerCase().includes(q)
     );
-  }, [reports, selectedSite, search]);
+  }, [reports, selectedSite, search, profiles]);
 
   if (!ready || !role) {
     return (
@@ -182,51 +205,42 @@ function ZonesPage() {
         )}
 
         {/* Site cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {summaries.map(s => {
             const active = selectedSite === s.site.name;
             return (
               <button
                 key={s.site.id}
                 onClick={() => setSelectedSite(active ? null : s.site.name)}
-                className={`glass-card rounded-2xl p-5 text-left relative overflow-hidden group transition-all ${
+                title={s.reports.length > 0 ? `Last report: ${timeAgo(s.lastReportAt)}` : undefined}
+                className={`glass-card rounded-xl p-3 text-left transition-all ${
                   active ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : "hover:shadow-md"
                 }`}
               >
-                <div className="absolute -right-6 -top-6 w-20 h-20 rounded-full blur-2xl opacity-20 group-hover:opacity-40 transition-opacity bg-primary" />
-                <div className="relative flex items-start justify-between">
-                  <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary border border-primary/20 flex items-center justify-center">
-                    <Building2 className="w-4 h-4" />
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-6 h-6 rounded-md bg-primary/10 text-primary border border-primary/20 flex items-center justify-center shrink-0">
+                    <Building2 className="w-3 h-3" />
                   </div>
-                  {s.reports.length === 0 ? null : (
-                    <Badge variant="outline" className="text-[10px]">
-                      {s.reports.length} total
-                    </Badge>
-                  )}
+                  <div className="font-semibold text-sm truncate">{s.site.name}</div>
                 </div>
-                <div className="font-semibold mt-3">{s.site.name}</div>
 
                 {s.reports.length === 0 ? (
-                  <p className="text-xs text-muted-foreground mt-2">No reports logged at this site yet.</p>
+                  <p className="text-[11px] text-muted-foreground mt-2">No reports yet.</p>
                 ) : (
-                  <>
-                    <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                      <span className="inline-flex items-center gap-1">
-                        <FileWarning className="w-3 h-3" /> {s.open} open
-                      </span>
-                      <span className="inline-flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> {s.closed} closed
-                      </span>
+                  <div className="mt-2 space-y-1">
+                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span className="inline-flex items-center gap-1"><FileWarning className="w-3 h-3" /> {s.open} open</span>
+                      <span className="inline-flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> {s.closed} closed</span>
                     </div>
-                    <div className="flex items-center gap-2 mt-3">
-                      {s.low > 0 && <span className="inline-flex items-center gap-1 text-[10px] text-accent"><span className="w-1.5 h-1.5 rounded-full bg-accent" />{s.low}</span>}
-                      {s.medium > 0 && <span className="inline-flex items-center gap-1 text-[10px] text-primary"><span className="w-1.5 h-1.5 rounded-full bg-primary" />{s.medium}</span>}
-                      {s.high > 0 && <span className="inline-flex items-center gap-1 text-[10px] text-destructive"><span className="w-1.5 h-1.5 rounded-full bg-destructive" />{s.high}</span>}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        {s.low > 0 && <span className="inline-flex items-center gap-0.5 text-[10px] text-accent"><span className="w-1.5 h-1.5 rounded-full bg-accent" />{s.low}</span>}
+                        {s.medium > 0 && <span className="inline-flex items-center gap-0.5 text-[10px] text-primary"><span className="w-1.5 h-1.5 rounded-full bg-primary" />{s.medium}</span>}
+                        {s.high > 0 && <span className="inline-flex items-center gap-0.5 text-[10px] text-destructive"><span className="w-1.5 h-1.5 rounded-full bg-destructive" />{s.high}</span>}
+                      </div>
+                      <Badge variant="outline" className="text-[9px] px-1.5 py-0">{s.reports.length}</Badge>
                     </div>
-                    <div className="text-[11px] text-muted-foreground mt-3 pt-3 border-t border-border">
-                      Last report: {timeAgo(s.lastReportAt)}
-                    </div>
-                  </>
+                  </div>
                 )}
               </button>
             );
@@ -288,7 +302,7 @@ function ZonesPage() {
           {/* Mobile card list */}
           <div className="md:hidden divide-y divide-border">
             {tableReports.map(r => (
-              <div key={r.id} className="p-4 space-y-2">
+              <div key={r.id} className={`p-4 space-y-2 ${rowTint(r)}`}>
                 <div className="flex items-center gap-2 flex-wrap">
                   <Link to="/reports/$reportId" params={{ reportId: r.id }} className="font-mono text-primary text-xs hover:underline">{r.reference_number}</Link>
                   <Badge variant="outline" className={severityStyles[r.severity]}>{r.severity}</Badge>
@@ -298,7 +312,7 @@ function ZonesPage() {
                 <div className="text-sm font-medium capitalize">{r.category.replace("_", " ")}</div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                   <span className="inline-flex items-center gap-1"><MapPin className="w-3 h-3" /> {r.zone}</span>
-                  <span>Assignee: {r.assigned_to ?? "—"}</span>
+                  <span>Assignee: {assigneeName(r, profiles)}</span>
                 </div>
               </div>
             ))}
@@ -320,7 +334,7 @@ function ZonesPage() {
               </thead>
               <tbody>
                 {tableReports.map(r => (
-                  <tr key={r.id} className="border-t border-border hover:bg-muted/40 transition-colors">
+                  <tr key={r.id} className={`border-t border-border hover:bg-muted/40 transition-colors ${rowTint(r)}`}>
                     <td className="px-5 py-3.5 font-mono text-primary text-xs">
                       <Link to="/reports/$reportId" params={{ reportId: r.id }} className="hover:underline">{r.reference_number}</Link>
                     </td>
@@ -328,7 +342,7 @@ function ZonesPage() {
                     <td className="px-3 py-3.5"><span className="inline-flex items-center gap-1 text-muted-foreground"><MapPin className="w-3 h-3" />{r.zone}</span></td>
                     <td className="px-3 py-3.5"><Badge variant="outline" className={severityStyles[r.severity]}>{r.severity}</Badge></td>
                     <td className="px-3 py-3.5"><Badge variant="outline" className={statusStyles[r.status]}>{r.status.replace("_", " ")}</Badge></td>
-                    <td className="px-3 py-3.5 text-muted-foreground">{r.assigned_to ?? "—"}</td>
+                    <td className="px-3 py-3.5 text-muted-foreground">{assigneeName(r, profiles)}</td>
                     <td className="px-5 py-3.5 text-right text-muted-foreground text-xs">{timeAgo(r.created_at)}</td>
                   </tr>
                 ))}

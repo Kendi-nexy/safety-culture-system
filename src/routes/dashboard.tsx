@@ -27,8 +27,8 @@ export const Route = createFileRoute("/dashboard")({
 const statusStyles: Record<string, string> = {
   open: "bg-destructive/10 text-destructive border-destructive/30",
   in_progress: "bg-primary/10 text-primary border-primary/30",
-  resolved: "bg-accent/10 text-accent border-accent/30",
-  closed: "bg-accent/10 text-accent border-accent/30",
+  resolved: "bg-amber-500/10 text-amber-600 border-amber-500/30",
+  closed: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
   reopened: "bg-destructive/10 text-destructive border-destructive/30",
 };
 const CATEGORY_COLORS: Record<string, string> = {
@@ -46,6 +46,17 @@ const CATEGORY_COLORS: Record<string, string> = {
 type Report = Tables<"reports">;
 type StatusLogRow = Tables<"status_log">;
 type Profile = Tables<"profiles">;
+
+// Shared background tint for a report row/card: red if overdue, green once
+// closed, amber if resolved, otherwise transparent. Same rule used on Zones
+// and Corrective Actions, so "closed" reads the same everywhere.
+function rowTint(r: Report): string {
+  const overdue = r.due_at && !["resolved", "closed"].includes(r.status) && new Date(r.due_at).getTime() < Date.now();
+  if (overdue) return "bg-destructive/10";
+  if (r.status === "closed") return "bg-emerald-500/10";
+  if (r.status === "resolved") return "bg-amber-500/10";
+  return "";
+}
 
 function useDashboardData() {
   const [reports, setReports] = useState<Report[] | null>(null);
@@ -292,10 +303,10 @@ function Hero({ role, profile }: { role: Role; profile: Tables<"profiles"> | nul
           </h1>
           <p className="text-muted-foreground mt-2 max-w-xl text-sm sm:text-base">
             {role === "Supervisor"
-              ? "Triage new reports from your team, assign owners and drive corrective actions to close-out."
+              ? ""
               : role === "HSE Officer"
-                ? "Live view across all Siginon warehouses. Investigate, assign, close and learn — in seconds."
-                : "Manage users, roles and system settings across every Siginon site."}
+                ? ""
+                : ""}
           </p>
         </div>
         <div className="flex gap-3 w-full md:w-auto">
@@ -367,7 +378,7 @@ function RecentReportsCard({
 
       {!loading && recent.length === 0 && (
         <div className="p-6 text-sm text-muted-foreground">
-          No reports yet — once submitted, they'll show up here.
+          No reports yet once submitted, they'll show up here.
         </div>
       )}
 
@@ -388,7 +399,7 @@ function RecentReportsCard({
               {recent.map(r => (
                 <tr
                   key={r.id}
-                  className="border-t border-border hover:bg-muted/40 transition-colors cursor-pointer"
+                  className={`border-t border-border hover:bg-muted/40 transition-colors cursor-pointer ${rowTint(r)}`}
                   onClick={() => navigate({ to: "/reports/$reportId", params: { reportId: r.id } })}
                 >
                   <td className="px-5 py-3 font-mono text-primary text-xs font-semibold">{r.reference_number}</td>
