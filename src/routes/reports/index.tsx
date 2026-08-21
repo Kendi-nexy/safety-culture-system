@@ -33,7 +33,27 @@ export const Route = createFileRoute("/reports/")({
 type Report = Tables<"reports">;
 type Profile = Tables<"profiles">;
 
-const WORKFLOW_STATUSES = ["open", "in_progress", "closed"] as const;
+const WORKFLOW_STATUSES = ["open", "assigned", "in_progress", "resolved", "closed"] as const;
+
+// Row tint by status, same rule as Zones/Dashboard: overdue wins (red),
+// then closed (green), resolved (amber), assigned/in_progress (primary),
+// open stays neutral. Returns the classes for both the <tr> and its <td>
+// borders, which need to share the same tint color.
+function reportRowTint(r: Report): { row: string; border: string } {
+  const overdue = r.overdue === true;
+  if (overdue) return { row: "bg-destructive/5 hover:bg-destructive/10", border: "border-destructive/20" };
+  switch (r.status) {
+    case "closed":
+      return { row: "bg-emerald-50/80 hover:bg-emerald-100/80", border: "border-emerald-100" };
+    case "resolved":
+      return { row: "bg-amber-50/80 hover:bg-amber-100/70", border: "border-amber-100" };
+    case "assigned":
+    case "in_progress":
+      return { row: "bg-primary/5 hover:bg-primary/10", border: "border-primary/15" };
+    default:
+      return { row: "bg-white hover:bg-muted/40", border: "border-border" };
+  }
+}
 
 function useReportsData() {
   const [reports, setReports] = useState<Report[] | null>(null);
@@ -245,11 +265,13 @@ function ReportsPage() {
           )}
 
           {/* Mobile card list */}
-          <div className="md:hidden divide-y divide-emerald-100 bg-emerald-50/70">
-            {filtered.map(r => (
+          <div className="md:hidden divide-y divide-border">
+            {filtered.map(r => {
+              const tint = reportRowTint(r);
+              return (
               <div
                 key={r.id}
-                className="p-4 space-y-2 cursor-pointer hover:bg-emerald-100/60 active:bg-emerald-100/80 transition-colors"
+                className={`p-4 space-y-2 cursor-pointer transition-colors ${tint.row}`}
                 onClick={() => navigateToReport(r.id)}
               >
                 <div className="flex items-center gap-2 flex-wrap">
@@ -277,7 +299,8 @@ function ReportsPage() {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Desktop table */}
@@ -299,50 +322,53 @@ function ReportsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(r => (
-                  <tr
-                    key={r.id}
-                    className="border-t border-emerald-100 bg-emerald-50/80 text-foreground hover:bg-emerald-100/80 transition-colors cursor-pointer group"
-                    onClick={() => navigateToReport(r.id)}
-                  >
-                    <td className="border-r border-emerald-100 px-3 py-3" onClick={e => e.stopPropagation()}>
-                      <Square className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
-                    </td>
-                    <td className="border-r border-emerald-100 px-2 py-3 text-center" onClick={e => e.stopPropagation()}>
-                      <MailState report={r} />
-                    </td>
-                    <td className="border-r border-emerald-100 px-2 py-3 text-center" onClick={e => e.stopPropagation()}>
-                      <FileText className="mx-auto w-4 h-4 text-muted-foreground/70" />
-                    </td>
-                    <td className="border-r border-emerald-100 px-3 py-3 font-mono font-semibold text-primary">
-                      {compactReference(r.reference_number)}
-                    </td>
-                    <td className="border-r border-emerald-100 px-3 py-3 font-semibold">
-                      <div className="max-w-[260px] truncate">{reportSubject(r)}</div>
-                    </td>
-                    <td className="border-r border-emerald-100 px-3 py-3">{reportRequester(r)}</td>
-                    <td className="border-r border-emerald-100 px-3 py-3 font-medium">{assigneeName(r, profiles)}</td>
-                    <td className="border-r border-emerald-100 px-3 py-3 font-medium">{formatReportDate(r.due_at)}</td>
-                    <td className="border-r border-emerald-100 px-3 py-3" onClick={e => e.stopPropagation()}>
-                      <div className="flex items-center gap-2">
-                        <StatusMarker report={r} />
-                        <ReportStatusControl
-                          report={r}
-                          disabled={savingReportId === r.id}
-                          compact
-                          onStatusChange={next => updateStatus(r, next)}
-                        />
-                      </div>
-                      {r.status === "closed" && r.resolution && (
-                        <div className="mt-1 max-w-[220px] truncate text-[11px] text-muted-foreground" title={r.resolution}>
-                          {r.resolution}
+                {filtered.map(r => {
+                  const tint = reportRowTint(r);
+                  return (
+                    <tr
+                      key={r.id}
+                      className={`border-t ${tint.border} ${tint.row} text-foreground transition-colors cursor-pointer group`}
+                      onClick={() => navigateToReport(r.id)}
+                    >
+                      <td className={`border-r ${tint.border} px-3 py-3`} onClick={e => e.stopPropagation()}>
+                        <Square className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                      </td>
+                      <td className={`border-r ${tint.border} px-2 py-3 text-center`} onClick={e => e.stopPropagation()}>
+                        <MailState report={r} />
+                      </td>
+                      <td className={`border-r ${tint.border} px-2 py-3 text-center`} onClick={e => e.stopPropagation()}>
+                        <FileText className="mx-auto w-4 h-4 text-muted-foreground/70" />
+                      </td>
+                      <td className={`border-r ${tint.border} px-3 py-3 font-mono font-semibold text-primary`}>
+                        {compactReference(r.reference_number)}
+                      </td>
+                      <td className={`border-r ${tint.border} px-3 py-3 font-semibold`}>
+                        <div className="max-w-[260px] truncate">{reportSubject(r)}</div>
+                      </td>
+                      <td className={`border-r ${tint.border} px-3 py-3`}>{reportRequester(r)}</td>
+                      <td className={`border-r ${tint.border} px-3 py-3 font-medium`}>{assigneeName(r, profiles)}</td>
+                      <td className={`border-r ${tint.border} px-3 py-3 font-medium`}>{formatReportDate(r.due_at)}</td>
+                      <td className={`border-r ${tint.border} px-3 py-3`} onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-2">
+                          <StatusMarker report={r} />
+                          <ReportStatusControl
+                            report={r}
+                            disabled={savingReportId === r.id}
+                            compact
+                            onStatusChange={next => updateStatus(r, next)}
+                          />
                         </div>
-                      )}
-                    </td>
-                    <td className="border-r border-emerald-100 px-3 py-3 font-medium">{formatReportDate(r.created_at)}</td>
-                    <td className="px-3 py-3">{r.zone || "-"}</td>
-                  </tr>
-                ))}
+                        {r.status === "closed" && r.resolution && (
+                          <div className="mt-1 max-w-[220px] truncate text-[11px] text-muted-foreground" title={r.resolution}>
+                            {r.resolution}
+                          </div>
+                        )}
+                      </td>
+                      <td className={`border-r ${tint.border} px-3 py-3 font-medium`}>{formatReportDate(r.created_at)}</td>
+                      <td className="px-3 py-3">{r.zone || "-"}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -413,7 +439,9 @@ function ReportStatusControl({
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="open">Open</SelectItem>
+        <SelectItem value="assigned">Assigned</SelectItem>
         <SelectItem value="in_progress">In progress</SelectItem>
+        <SelectItem value="resolved">Resolved</SelectItem>
         <SelectItem value="closed">Closed</SelectItem>
       </SelectContent>
     </Select>
