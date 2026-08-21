@@ -21,7 +21,3 @@ Supabase connection details are in `.env`. No further setup is needed to view th
 
 There's no self-serve signup. Ask an admin to create your account from the Users page inside the app they'll set your role, site, and a password you can sign in with at `/auth`.
 
-
-- `src/integrations/supabase/` — Supabase client and types
-- `supabase/migrations/` — database changes, applied in order
-- `supabase/functions/` — edge functions (email notifications, account creation)
